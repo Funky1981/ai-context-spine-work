@@ -1,0 +1,9 @@
+# This public repo contains only generic bootstrap source.
+# Generated local state must never be committed.
+.agent-context/
+config.local.json
+*.secret
+*.secrets
+.env
+.env.*
+!.env.example

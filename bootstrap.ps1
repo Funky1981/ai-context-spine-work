@@ -342,7 +342,7 @@ $allowedExtensions = @(
     '.html','.css','.scss','.xml','.ini','.conf','.env.example'
 )
 $allowedNames = @('Dockerfile','Makefile','README','AGENTS.md','.editorconfig','.gitignore')
-$skipPattern = '[\/](\.git|node_modules|bin|obj|dist|build|coverage|vendor|\.venv|venv|\.next|target)[\/]'
+$skipPattern = '[\\/](\.git|node_modules|bin|obj|dist|build|coverage|vendor|\.venv|venv|\.next|target)[\\/]'
 
 $entries = New-Object System.Collections.Generic.List[object]
 $aggregate = New-Object System.Text.StringBuilder
@@ -424,7 +424,7 @@ if ($null -ne $rg) {
     exit 0
 }
 
-$skipPattern = '[\/](\.git|node_modules|bin|obj|dist|build|coverage|vendor|\.venv|venv|\.next|target)[\/]'
+$skipPattern = '[\\/](\.git|node_modules|bin|obj|dist|build|coverage|vendor|\.venv|venv|\.next|target)[\\/]'
 $allowedExtensions = @(
     '.go','.mod','.sum','.cs','.csproj','.sln','.props','.targets',
     '.ts','.tsx','.js','.jsx','.json','.jsonc','.md','.txt',
@@ -593,7 +593,7 @@ $allowedExtensions = @(
     '.html','.css','.scss','.xml','.ini','.conf','.env.example'
 )
 $allowedNames = @('Dockerfile','Makefile','README','AGENTS.md','.editorconfig','.gitignore')
-$skipPattern = '[\/](\.git|node_modules|bin|obj|dist|build|coverage|vendor|\.venv|venv|\.next|target)[\/]'
+$skipPattern = '[\\/](\.git|node_modules|bin|obj|dist|build|coverage|vendor|\.venv|venv|\.next|target)[\\/]'
 $aggregate = New-Object System.Text.StringBuilder
 $count = 0
 

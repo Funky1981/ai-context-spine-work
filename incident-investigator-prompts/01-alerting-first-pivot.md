@@ -146,6 +146,41 @@ Define deterministic alert conditions such as:
 
 Do not ask GLM whether an alert should fire.
 
+### Notification delivery architecture
+
+Design notification delivery behind a small **pluggable channel abstraction** so incident detection and alert-generation logic do not depend on a specific delivery mechanism.
+
+The conceptual flow should remain:
+
+incident lifecycle change
+→ deterministic alert rule
+→ alert
+→ notification dispatcher
+→ one or more approved notification channels
+
+For the POC, implement only the internal/dashboard notification channel unless another delivery mechanism is explicitly approved.
+
+The design should make it straightforward to add approved channels later, for example:
+
+- internal email
+- Microsoft Teams
+- another organisation-approved notification mechanism
+
+Do not integrate email, Teams, Slack, paging, or other external delivery channels merely to demonstrate extensibility.
+
+A future channel must be addable without changing incident detection, correlation, lifecycle, or alert-rule logic.
+
+Notification delivery failures must not alter incident state or cause duplicate incidents. Record delivery outcome separately from the underlying alert.
+
+GLM may generate or improve bounded human-readable alert summary text, but GLM must not decide:
+
+- whether an alert exists;
+- whether a notification should be sent;
+- which recipients are authorised;
+- which delivery channel is permitted.
+
+Those decisions remain deterministic/configured application policy.
+
 ### Persistence
 
 Determine the minimum persistence required to distinguish:

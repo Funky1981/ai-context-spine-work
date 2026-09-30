@@ -82,6 +82,7 @@ The installer:
 - never deletes or edits the original legacy context;
 - creates a raw snapshot under ~/.agent-context/imports/;
 - records an audit manifest under ~/.agent-context/migrations/;
+- immediately verifies the migration against the manifest and SHA-256 hashes;
 - merges legacy MEMORY.md, lessons.md and preferences.md into the canonical Context Spine memory with SHA-256 import markers;
 - copies legacy memory/projects/** into the new project-memory tree;
 - preserves conflicting files under hash-suffixed imported names rather than overwriting either version.

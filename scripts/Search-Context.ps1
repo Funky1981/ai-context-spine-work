@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)][string]$Project,
-    [Parameter(Mandatory = $true)][string]$Pattern,
+    [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$Project,
+    [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$Pattern,
     [int]$Limit = 40,
     [string]$Root = (Join-Path $HOME '.agent-context')
 )
@@ -32,7 +32,7 @@ if ($null -ne $rg) {
         '--fixed-strings','--',$Pattern,$projectPath
     )
     & $rg.Source @args 2>$null | Select-Object -First $Limit
-    exit 0
+    return
 }
 
 $skipPattern = '[\\/](\.git|node_modules|bin|obj|dist|build|coverage|vendor|\.venv|venv|\.next|target)[\\/]'

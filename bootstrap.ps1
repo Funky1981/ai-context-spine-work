@@ -399,8 +399,8 @@ Hard rule: branch/fork summarization is additive. Never delete or rewrite Git hi
 $registerProject = @'
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)][string]$Name,
-    [Parameter(Mandatory = $true)][string]$Path,
+    [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$Name,
+    [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$Path,
     [string]$Root = (Join-Path $HOME '.agent-context')
 )
 
@@ -412,25 +412,51 @@ function Get-Slug([string]$Value) {
     return $slug.Trim('-')
 }
 
-$resolved = (Resolve-Path -LiteralPath $Path).Path
-if (-not (Test-Path -LiteralPath $resolved -PathType Container)) {
-    throw "Project path is not a directory: $resolved"
+if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
+    throw "Project path is not a directory: $Path"
 }
+$resolved = (Resolve-Path -LiteralPath $Path).Path
 
 $projectsDir = Join-Path $Root 'projects'
 New-Item -ItemType Directory -Force -Path $projectsDir | Out-Null
 
 $slug = Get-Slug $Name
+if ([string]::IsNullOrWhiteSpace($slug)) {
+    throw "Project name '$Name' does not produce a usable slug. Include at least one letter or number."
+}
+
+$recordPath = Join-Path $projectsDir ($slug + '.json')
+$registeredAt = [DateTime]::UtcNow.ToString('o')
+
+if (Test-Path -LiteralPath $recordPath -PathType Leaf) {
+    $existing = Get-Content -LiteralPath $recordPath -Raw | ConvertFrom-Json
+    $existingPath = [string]$existing.path
+    if (-not [string]::Equals(
+        [System.IO.Path]::GetFullPath($existingPath).TrimEnd([char[]]"\/"),
+        [System.IO.Path]::GetFullPath($resolved).TrimEnd([char[]]"\/"),
+        [System.StringComparison]::OrdinalIgnoreCase
+    )) {
+        throw "Project slug '$slug' is already registered to '$existingPath'. Choose a distinct project name instead of overwriting it."
+    }
+    if ($existing.PSObject.Properties['registered_at_utc']) {
+        $registeredAt = [string]$existing.registered_at_utc
+    }
+}
+
 $record = [ordered]@{
     name = $Name
     slug = $slug
     path = $resolved
-    registered_at_utc = [DateTime]::UtcNow.ToString('o')
+    registered_at_utc = $registeredAt
+    refreshed_at_utc = [DateTime]::UtcNow.ToString('o')
     status = 'active'
 }
-
-$recordPath = Join-Path $projectsDir ($slug + '.json')
 $record | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $recordPath -Encoding UTF8
+
+$projectMemoryRoot = Join-Path (Join-Path $Root 'memory/projects') $slug
+New-Item -ItemType Directory -Force -Path $projectMemoryRoot | Out-Null
+New-Item -ItemType Directory -Force -Path (Join-Path $projectMemoryRoot 'sessions') | Out-Null
+New-Item -ItemType Directory -Force -Path (Join-Path $projectMemoryRoot 'handovers') | Out-Null
 
 & (Join-Path $PSScriptRoot 'Build-Index.ps1') -Project $slug -Root $Root
 & (Join-Path $PSScriptRoot 'New-ProjectSkill.ps1') -Project $slug -Root $Root
@@ -466,7 +492,11 @@ if (-not (Test-Path -LiteralPath $recordPath)) {
 }
 
 $record = Get-Content -LiteralPath $recordPath -Raw | ConvertFrom-Json
-$projectPath = $record.path
+$projectPath = [string]$record.path
+if (-not (Test-Path -LiteralPath $projectPath -PathType Container)) {
+    throw "Registered repository path no longer exists: $projectPath"
+}
+
 $indexDir = Join-Path $Root 'index'
 New-Item -ItemType Directory -Force -Path $indexDir | Out-Null
 
@@ -476,7 +506,7 @@ $allowedExtensions = @(
     '.yaml','.yml','.toml','.sql','.ps1','.psm1','.py','.sh',
     '.html','.css','.scss','.xml','.ini','.conf','.env.example'
 )
-$allowedNames = @('Dockerfile','Makefile','README','AGENTS.md','.editorconfig','.gitignore')
+$allowedNames = @('Dockerfile','Makefile','README','AGENTS.md','.editorconfig','.gitignore','.env.example')
 $skipPattern = '[\\/](\.git|node_modules|bin|obj|dist|build|coverage|vendor|\.venv|venv|\.next|target)[\\/]'
 
 $entries = New-Object System.Collections.Generic.List[object]
@@ -524,9 +554,9 @@ Write-Host "Index stores metadata/hashes only; source content remains in the rep
 $searchContext = @'
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)][string]$Project,
-    [Parameter(Mandatory = $true)][string]$Pattern,
-    [int]$Limit = 40,
+    [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$Project,
+    [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$Pattern,
+    [ValidateRange(1,10000)][int]$Limit = 40,
     [string]$Root = (Join-Path $HOME '.agent-context')
 )
 
@@ -556,7 +586,7 @@ if ($null -ne $rg) {
         '--fixed-strings','--',$Pattern,$projectPath
     )
     & $rg.Source @args 2>$null | Select-Object -First $Limit
-    exit 0
+    return
 }
 
 $skipPattern = '[\\/](\.git|node_modules|bin|obj|dist|build|coverage|vendor|\.venv|venv|\.next|target)[\\/]'
@@ -594,6 +624,9 @@ if (-not (Test-Path -LiteralPath $recordPath)) {
 }
 
 $record = Get-Content -LiteralPath $recordPath -Raw | ConvertFrom-Json
+if (-not (Test-Path -LiteralPath $record.path -PathType Container)) {
+    throw "Registered repository path no longer exists: $($record.path)"
+}
 $statePath = Join-Path (Join-Path $Root 'index') ($Project + '.state.json')
 $indexPath = Join-Path (Join-Path $Root 'index') ($Project + '.files.jsonl')
 
@@ -602,7 +635,7 @@ if (-not (Test-Path -LiteralPath $statePath) -or -not (Test-Path -LiteralPath $i
 }
 
 $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
-$entries = Get-Content -LiteralPath $indexPath | ForEach-Object { $_ | ConvertFrom-Json }
+$entries = @(Get-Content -LiteralPath $indexPath | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { $_ | ConvertFrom-Json })
 
 $topExtensions = $entries |
     Group-Object extension |
@@ -618,6 +651,7 @@ $canonicalNames = @(
     '*.sln','*.csproj','pyproject.toml','Cargo.toml','Dockerfile',
     'docker-compose.yml','docker-compose.yaml'
 )
+
 $canonical = New-Object System.Collections.Generic.List[string]
 foreach ($name in $canonicalNames) {
     Get-ChildItem -LiteralPath $record.path -Filter $name -File -ErrorAction SilentlyContinue |
@@ -719,6 +753,9 @@ if (-not (Test-Path -LiteralPath $recordPath) -or -not (Test-Path -LiteralPath $
 }
 
 $record = Get-Content -LiteralPath $recordPath -Raw | ConvertFrom-Json
+if (-not (Test-Path -LiteralPath $record.path -PathType Container)) {
+    throw "Registered repository path no longer exists: $($record.path)"
+}
 $oldState = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
 
 $allowedExtensions = @(
@@ -727,7 +764,7 @@ $allowedExtensions = @(
     '.yaml','.yml','.toml','.sql','.ps1','.psm1','.py','.sh',
     '.html','.css','.scss','.xml','.ini','.conf','.env.example'
 )
-$allowedNames = @('Dockerfile','Makefile','README','AGENTS.md','.editorconfig','.gitignore')
+$allowedNames = @('Dockerfile','Makefile','README','AGENTS.md','.editorconfig','.gitignore','.env.example')
 $skipPattern = '[\\/](\.git|node_modules|bin|obj|dist|build|coverage|vendor|\.venv|venv|\.next|target)[\\/]'
 $aggregate = New-Object System.Text.StringBuilder
 $count = 0
@@ -750,7 +787,7 @@ Get-ChildItem -LiteralPath $record.path -Recurse -File -ErrorAction SilentlyCont
 $currentHash = Get-StringHash $aggregate.ToString()
 $stale = $currentHash -ne $oldState.aggregate_sha256
 
-[pscustomobject]@{
+$result = [pscustomobject]@{
     project = $Project
     stale = $stale
     indexed_file_count = $oldState.file_count
@@ -758,6 +795,7 @@ $stale = $currentHash -ne $oldState.aggregate_sha256
     indexed_sha256 = $oldState.aggregate_sha256
     current_sha256 = $currentHash
 }
+$result
 
 if ($stale) {
     Write-Host "STALE: run Build-Index.ps1 and New-ProjectSkill.ps1 after reviewing the changes."
@@ -778,11 +816,15 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $configPath = Join-Path $Root 'config.json'
-if (-not (Test-Path -LiteralPath $configPath)) {
+if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) {
     throw "Missing config: $configPath"
 }
 
 $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+if ($null -eq $config.PSObject.Properties['profile']) { throw "config.profile is missing." }
+if ($null -eq $config.PSObject.Properties['external_ai_allowed']) { throw "config.external_ai_allowed is missing." }
+if ($null -eq $config.PSObject.Properties['jev'] -or $null -eq $config.jev) { throw "config.jev is missing." }
+if ($null -eq $config.jev.PSObject.Properties['enabled']) { throw "config.jev.enabled is missing." }
 
 if ($config.profile -eq 'work' -and -not $ApprovedForWork) {
     throw "Work profile is GLM-only by default. Jev remains blocked. Use -ApprovedForWork only after formal employer approval for this external service."
@@ -803,8 +845,8 @@ Write-Host "No API key was stored. Set JEV_API_KEY through an approved environme
 $invokeJev = @'
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)][string]$State,
-    [Parameter(Mandatory = $true)][string]$Question,
+    [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$State,
+    [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$Question,
     [string]$Root = (Join-Path $HOME '.agent-context'),
     [string]$Model = 'jev-latest'
 )
@@ -813,12 +855,25 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $configPath = Join-Path $Root 'config.json'
-if (-not (Test-Path -LiteralPath $configPath)) {
+if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) {
     throw "Missing context config: $configPath"
 }
 $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
 
-if (-not $config.external_ai_allowed -or -not $config.jev.enabled) {
+if ($null -eq $config.PSObject.Properties['external_ai_allowed']) {
+    throw "config.external_ai_allowed is missing."
+}
+if ($null -eq $config.PSObject.Properties['jev'] -or $null -eq $config.jev) {
+    throw "config.jev is missing."
+}
+if ($null -eq $config.jev.PSObject.Properties['enabled']) {
+    throw "config.jev.enabled is missing."
+}
+if ($null -eq $config.jev.PSObject.Properties['endpoint'] -or [string]::IsNullOrWhiteSpace([string]$config.jev.endpoint)) {
+    throw "config.jev.endpoint is missing."
+}
+
+if (-not [bool]$config.external_ai_allowed -or -not [bool]$config.jev.enabled) {
     throw "Jev/external AI is disabled by this profile. Core context tooling does not require it."
 }
 
@@ -841,7 +896,7 @@ $headers = @{ Authorization = "Bearer $env:JEV_API_KEY" }
 
 $params = @{
     Method = 'Post'
-    Uri = $config.jev.endpoint
+    Uri = [string]$config.jev.endpoint
     Headers = $headers
     ContentType = 'application/json'
     Body = $body
@@ -942,7 +997,7 @@ function Merge-GlobalMemory {
     if (-not (Test-Path -LiteralPath $DestinationPath)) {
         $parent = Split-Path -Parent $DestinationPath
         New-Item -ItemType Directory -Force -Path $parent | Out-Null
-        $sourceText | Set-Content -LiteralPath $DestinationPath -Encoding UTF8
+        Copy-Item -LiteralPath $SourcePath -Destination $DestinationPath
         return [pscustomobject]@{ action = 'canonical-created'; path = $DestinationPath; sha256 = $sourceHash }
     }
 
@@ -998,7 +1053,7 @@ foreach ($sourceInput in $Source) {
     $isOpenCodeRoot = Test-Path -LiteralPath $memoryCandidate -PathType Container
     $memoryRoot = if ($isOpenCodeRoot) { $memoryCandidate } else { $sourceRoot }
 
-    $snapshotFiles = if ($isOpenCodeRoot) {
+    $snapshotFiles = @(if ($isOpenCodeRoot) {
         Get-ChildItem -LiteralPath $sourceRoot -Recurse -File -ErrorAction SilentlyContinue |
             Where-Object {
                 $rel = Get-RelativePathCompat $sourceRoot $_.FullName
@@ -1007,7 +1062,7 @@ foreach ($sourceInput in $Source) {
     }
     else {
         Get-ChildItem -LiteralPath $sourceRoot -Recurse -File -ErrorAction SilentlyContinue
-    }
+    })
 
     $actions = New-Object System.Collections.Generic.List[object]
 
@@ -1107,11 +1162,32 @@ if (-not (Test-Path -LiteralPath $ManifestPath -PathType Leaf)) {
 }
 
 $manifest = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
+if ($null -eq $manifest.PSObject.Properties['actions']) {
+    throw "Import manifest is missing the actions collection: $ManifestPath"
+}
+$actions = @($manifest.actions)
 $failures = New-Object System.Collections.Generic.List[string]
 $checked = 0
 
-foreach ($action in @($manifest.actions)) {
+foreach ($action in $actions) {
     $checked++
+
+    if ($null -eq $action) {
+        $failures.Add("Import manifest contains a null action.")
+        continue
+    }
+    foreach ($requiredProperty in @('source','destination','action','sha256')) {
+        if ($null -eq $action.PSObject.Properties[$requiredProperty]) {
+            $failures.Add("Import action is missing required property '$requiredProperty'.")
+        }
+    }
+    if (@($failures | Where-Object { $_ -like "Import action is missing required property*" }).Count -gt 0 -and
+        ($null -eq $action.PSObject.Properties['source'] -or
+         $null -eq $action.PSObject.Properties['destination'] -or
+         $null -eq $action.PSObject.Properties['action'] -or
+         $null -eq $action.PSObject.Properties['sha256'])) {
+        continue
+    }
 
     if (-not (Test-Path -LiteralPath $action.source -PathType Leaf)) {
         $failures.Add("Original source is missing: $($action.source)")
@@ -1169,7 +1245,7 @@ if ($failures.Count -gt 0) {
 $getContextMaintenance = @'
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)][string]$Project,
+    [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$Project,
     [string]$Root = (Join-Path $HOME '.agent-context'),
     [int]$TriggerEstimatedTokens = 0,
     [int]$KeepRecentEstimatedTokens = 0
@@ -1182,28 +1258,54 @@ function Get-FileSha256([string]$Path) {
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
 }
 
+function Get-OptionalProperty {
+    param(
+        [object]$Object,
+        [Parameter(Mandatory = $true)][string]$Name,
+        $Default = $null
+    )
+    if ($null -eq $Object) { return $Default }
+    $property = $Object.PSObject.Properties[$Name]
+    if ($null -eq $property) { return $Default }
+    return $property.Value
+}
+
 $configPath = Join-Path $Root 'config.json'
 $config = $null
-if (Test-Path -LiteralPath $configPath) {
+if (Test-Path -LiteralPath $configPath -PathType Leaf) {
     $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
 }
 
+$compaction = Get-OptionalProperty -Object $config -Name 'compaction'
+$enabled = Get-OptionalProperty -Object $compaction -Name 'enabled' -Default $true
+
 if ($TriggerEstimatedTokens -le 0) {
-    if ($null -ne $config -and $null -ne $config.compaction -and $config.compaction.trigger_estimated_tokens) {
-        $TriggerEstimatedTokens = [int]$config.compaction.trigger_estimated_tokens
-    }
-    else {
-        $TriggerEstimatedTokens = 60000
-    }
+    $configuredTrigger = Get-OptionalProperty -Object $compaction -Name 'trigger_estimated_tokens'
+    $TriggerEstimatedTokens = if ($null -ne $configuredTrigger) { [int]$configuredTrigger } else { 60000 }
 }
 
 if ($KeepRecentEstimatedTokens -le 0) {
-    if ($null -ne $config -and $null -ne $config.compaction -and $config.compaction.keep_recent_estimated_tokens) {
-        $KeepRecentEstimatedTokens = [int]$config.compaction.keep_recent_estimated_tokens
+    $configuredKeep = Get-OptionalProperty -Object $compaction -Name 'keep_recent_estimated_tokens'
+    $KeepRecentEstimatedTokens = if ($null -ne $configuredKeep) { [int]$configuredKeep } else { 20000 }
+}
+
+if ($TriggerEstimatedTokens -lt 1) { throw "TriggerEstimatedTokens must be greater than zero." }
+if ($KeepRecentEstimatedTokens -lt 0) { throw "KeepRecentEstimatedTokens cannot be negative." }
+
+if (-not [bool]$enabled) {
+    [pscustomobject]@{
+        project = $Project
+        compaction_required = $false
+        compaction_enabled = $false
+        uncompacted_estimated_tokens = 0
+        trigger_estimated_tokens = $TriggerEstimatedTokens
+        keep_recent_estimated_tokens = $KeepRecentEstimatedTokens
+        candidate_file_count = 0
+        kept_recent_file_count = 0
+        plan_path = $null
+        raw_sources_preserved = $true
     }
-    else {
-        $KeepRecentEstimatedTokens = 20000
-    }
+    return
 }
 
 $sessionRoots = @(
@@ -1213,18 +1315,26 @@ $sessionRoots = @(
 
 $manifestPath = Join-Path (Join-Path (Join-Path $Root 'context/compactions') $Project) 'manifest.jsonl'
 $alreadyCompacted = @{}
-if (Test-Path -LiteralPath $manifestPath) {
-    Get-Content -LiteralPath $manifestPath | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object {
-        try {
-            $entry = $_ | ConvertFrom-Json
-            foreach ($source in @($entry.source_files)) {
-                if ($null -ne $source.sha256) { $alreadyCompacted[$source.sha256] = $true }
+if (Test-Path -LiteralPath $manifestPath -PathType Leaf) {
+    Get-Content -LiteralPath $manifestPath |
+        Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+        ForEach-Object {
+            try {
+                $entry = $_ | ConvertFrom-Json
+                $sources = Get-OptionalProperty -Object $entry -Name 'source_files' -Default @()
+                foreach ($source in @($sources)) {
+                    $path = Get-OptionalProperty -Object $source -Name 'path'
+                    $sha = Get-OptionalProperty -Object $source -Name 'sha256'
+                    if (-not [string]::IsNullOrWhiteSpace($path) -and -not [string]::IsNullOrWhiteSpace($sha)) {
+                        $key = "$path|$sha"
+                        $alreadyCompacted[$key] = $true
+                    }
+                }
+            }
+            catch {
+                Write-Warning "Ignoring unreadable compaction manifest line: $manifestPath"
             }
         }
-        catch {
-            Write-Warning "Ignoring unreadable compaction manifest line: $manifestPath"
-        }
-    }
 }
 
 $items = New-Object System.Collections.Generic.List[object]
@@ -1235,8 +1345,10 @@ foreach ($sessionRoot in $sessionRoots) {
         Where-Object { $_.Extension.ToLowerInvariant() -in @('.md','.txt','.json') } |
         ForEach-Object {
             $hash = Get-FileSha256 $_.FullName
-            if (-not $alreadyCompacted.ContainsKey($hash)) {
+            $key = "$($_.FullName)|$hash"
+            if (-not $alreadyCompacted.ContainsKey($key)) {
                 $text = Get-Content -LiteralPath $_.FullName -Raw
+                if ($null -eq $text) { $text = '' }
                 $tokens = [Math]::Ceiling($text.Length / 4.0)
                 $items.Add([pscustomobject]@{
                     path = $_.FullName
@@ -1291,6 +1403,7 @@ if ($compactionRequired) {
 [pscustomobject]@{
     project = $Project
     compaction_required = $compactionRequired
+    compaction_enabled = $true
     uncompacted_estimated_tokens = $totalTokens
     trigger_estimated_tokens = $TriggerEstimatedTokens
     keep_recent_estimated_tokens = $KeepRecentEstimatedTokens
@@ -1304,9 +1417,9 @@ if ($compactionRequired) {
 $saveCompaction = @'
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)][string]$Project,
-    [Parameter(Mandatory = $true)][string]$PlanPath,
-    [Parameter(Mandatory = $true)][string]$SummaryPath,
+    [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$Project,
+    [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$PlanPath,
+    [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$SummaryPath,
     [string]$Root = (Join-Path $HOME '.agent-context')
 )
 
@@ -1321,6 +1434,11 @@ if (-not (Test-Path -LiteralPath $SummaryPath -PathType Leaf)) {
 }
 
 $plan = Get-Content -LiteralPath $PlanPath -Raw | ConvertFrom-Json
+foreach ($requiredProperty in @('project','source_files','kept_recent_files')) {
+    if ($null -eq $plan.PSObject.Properties[$requiredProperty]) {
+        throw "Compaction plan is missing required property '$requiredProperty'."
+    }
+}
 if ($plan.project -ne $Project) {
     throw "Plan project '$($plan.project)' does not match requested project '$Project'."
 }
@@ -1391,8 +1509,8 @@ Write-Host "Raw session/handover files were preserved and were not modified."
 $getBranchSummaryContext = @'
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)][string]$Project,
-    [Parameter(Mandatory = $true)][string]$ToBranch,
+    [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$Project,
+    [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$ToBranch,
     [string]$FromBranch,
     [string]$Root = (Join-Path $HOME '.agent-context')
 )
@@ -1401,32 +1519,55 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $recordPath = Join-Path (Join-Path $Root 'projects') ($Project + '.json')
-if (-not (Test-Path -LiteralPath $recordPath)) {
+if (-not (Test-Path -LiteralPath $recordPath -PathType Leaf)) {
     throw "Unknown project '$Project'. Register it first."
 }
 $record = Get-Content -LiteralPath $recordPath -Raw | ConvertFrom-Json
-$repo = $record.path
+$repo = [string]$record.path
+
+if (-not (Test-Path -LiteralPath $repo -PathType Container)) {
+    throw "Registered repository path no longer exists: $repo"
+}
 
 $git = Get-Command git -ErrorAction SilentlyContinue
 if ($null -eq $git) {
     throw "git is required for branch summary context."
 }
 
-if ([string]::IsNullOrWhiteSpace($FromBranch)) {
-    $FromBranch = (& $git.Source -C $repo branch --show-current).Trim()
-}
-if ([string]::IsNullOrWhiteSpace($FromBranch)) {
-    throw "Could not determine the current Git branch."
+$insideWorkTree = @(& $git.Source -C $repo rev-parse --is-inside-work-tree 2>$null)
+if ($LASTEXITCODE -ne 0 -or ($insideWorkTree -join '').Trim() -ne 'true') {
+    throw "Registered project is not a Git working tree: $repo"
 }
 
-& $git.Source -C $repo rev-parse --verify $FromBranch *> $null
+if ([string]::IsNullOrWhiteSpace($FromBranch)) {
+    $fromOutput = @(& $git.Source -C $repo branch --show-current 2>$null)
+    if ($LASTEXITCODE -ne 0) { throw "Could not determine the current Git branch." }
+    $FromBranch = ($fromOutput -join [Environment]::NewLine).Trim()
+}
+if ([string]::IsNullOrWhiteSpace($FromBranch)) {
+    throw "Could not determine the current Git branch. Detached HEAD is not supported by this helper."
+}
+
+& $git.Source -C $repo rev-parse --verify "$FromBranch^{commit}" *> $null
 if ($LASTEXITCODE -ne 0) { throw "Unknown from-branch '$FromBranch'." }
-& $git.Source -C $repo rev-parse --verify $ToBranch *> $null
+
+& $git.Source -C $repo rev-parse --verify "$ToBranch^{commit}" *> $null
 if ($LASTEXITCODE -ne 0) { throw "Unknown target branch '$ToBranch'." }
 
-$mergeBase = (& $git.Source -C $repo merge-base $FromBranch $ToBranch).Trim()
+$mergeOutput = @(& $git.Source -C $repo merge-base $FromBranch $ToBranch 2>$null)
+if ($LASTEXITCODE -ne 0) {
+    throw "Could not determine a common ancestor between '$FromBranch' and '$ToBranch'."
+}
+$mergeBase = ($mergeOutput -join [Environment]::NewLine).Trim()
+if ([string]::IsNullOrWhiteSpace($mergeBase)) {
+    throw "No common ancestor was returned for '$FromBranch' and '$ToBranch'."
+}
+
 $commits = @(& $git.Source -C $repo log --format='%H%x09%s' "$mergeBase..$FromBranch")
+if ($LASTEXITCODE -ne 0) { throw "Could not read commits for '$FromBranch'." }
+
 $changedFiles = @(& $git.Source -C $repo diff --name-only "$mergeBase..$FromBranch")
+if ($LASTEXITCODE -ne 0) { throw "Could not read changed files for '$FromBranch'." }
 
 $sessionRoot = Join-Path (Join-Path (Join-Path $Root 'memory/projects') $Project) 'sessions'
 $recentSessions = @()
@@ -1456,10 +1597,10 @@ if (Test-Path -LiteralPath $sessionRoot -PathType Container) {
 $saveBranchSummary = @'
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)][string]$Project,
-    [Parameter(Mandatory = $true)][string]$FromBranch,
-    [Parameter(Mandatory = $true)][string]$ToBranch,
-    [Parameter(Mandatory = $true)][string]$SummaryPath,
+    [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$Project,
+    [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$FromBranch,
+    [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$ToBranch,
+    [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$SummaryPath,
     [string]$CommonAncestor,
     [string]$Root = (Join-Path $HOME '.agent-context')
 )
@@ -1523,9 +1664,9 @@ Write-Host "Git history, source files and raw session memory were not modified."
 $searchMemory = @'
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)][string]$Pattern,
+    [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$Pattern,
     [string]$Project,
-    [int]$Limit = 40,
+    [ValidateRange(1,10000)][int]$Limit = 40,
     [switch]$IncludeImports,
     [string]$Root = (Join-Path $HOME '.agent-context')
 )
@@ -1558,7 +1699,7 @@ if ($null -ne $rg) {
         & $rg.Source '--line-number' '--color' 'never' '--fixed-strings' '--glob' '*.md' '--glob' '*.txt' '--glob' '*.json' '--' $Pattern $searchRoot 2>$null
     }
     $all | Select-Object -First $Limit
-    exit 0
+    return
 }
 
 $matches = foreach ($searchRoot in $existing) {
@@ -1572,6 +1713,60 @@ $matches | Select-Object -First $Limit | ForEach-Object {
 }
 '@
 
+$testScriptSyntax = @'
+[CmdletBinding()]
+param(
+    [string]$Root = (Join-Path $HOME '.agent-context')
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+
+$scriptsDir = Join-Path $Root 'scripts'
+if (-not (Test-Path -LiteralPath $scriptsDir -PathType Container)) {
+    throw "Scripts directory not found: $scriptsDir"
+}
+
+$failures = New-Object System.Collections.Generic.List[object]
+$checked = 0
+
+Get-ChildItem -LiteralPath $scriptsDir -Filter '*.ps1' -File -ErrorAction Stop |
+    Sort-Object Name |
+    ForEach-Object {
+        $checked++
+        $tokens = $null
+        $parseErrors = $null
+        [void][System.Management.Automation.Language.Parser]::ParseFile(
+            $_.FullName,
+            [ref]$tokens,
+            [ref]$parseErrors
+        )
+
+        foreach ($parseError in @($parseErrors)) {
+            if ($null -ne $parseError) {
+                $failures.Add([pscustomobject]@{
+                    file = $_.FullName
+                    message = $parseError.Message
+                    line = $parseError.Extent.StartLineNumber
+                    column = $parseError.Extent.StartColumnNumber
+                })
+            }
+        }
+    }
+
+$result = [pscustomobject]@{
+    scripts_checked = $checked
+    parse_failures = $failures.Count
+    failures = @($failures)
+    valid = ($failures.Count -eq 0)
+}
+$result
+
+if ($failures.Count -gt 0) {
+    throw "One or more generated Context Spine PowerShell scripts failed parser validation."
+}
+'@
+
 $testWorkspace = @'
 [CmdletBinding()]
 param(
@@ -1580,6 +1775,18 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+function Get-OptionalProperty {
+    param(
+        [object]$Object,
+        [Parameter(Mandatory = $true)][string]$Name,
+        $Default = $null
+    )
+    if ($null -eq $Object) { return $Default }
+    $property = $Object.PSObject.Properties[$Name]
+    if ($null -eq $property) { return $Default }
+    return $property.Value
+}
 
 $required = @(
     'config.json',
@@ -1595,6 +1802,7 @@ $required = @(
     'scripts/Test-Staleness.ps1',
     'scripts/Import-ExistingContext.ps1',
     'scripts/Test-ImportedContext.ps1',
+    'scripts/Test-ScriptSyntax.ps1',
     'scripts/Get-ContextMaintenance.ps1',
     'scripts/Save-Compaction.ps1',
     'scripts/Get-BranchSummaryContext.ps1',
@@ -1615,7 +1823,7 @@ $requiredDirs = @(
 $missing = @()
 foreach ($item in $required) {
     $path = Join-Path $Root $item
-    if (-not (Test-Path -LiteralPath $path)) { $missing += $item }
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { $missing += $item }
 }
 foreach ($item in $requiredDirs) {
     $path = Join-Path $Root $item
@@ -1624,25 +1832,53 @@ foreach ($item in $requiredDirs) {
 
 $configPath = Join-Path $Root 'config.json'
 $config = $null
-if (Test-Path -LiteralPath $configPath) {
-    $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+$configError = $null
+if (Test-Path -LiteralPath $configPath -PathType Leaf) {
+    try {
+        $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+    }
+    catch {
+        $configError = $_.Exception.Message
+    }
 }
 
-$importCount = @(
-    Get-ChildItem -LiteralPath (Join-Path $Root 'migrations') -Filter 'import-*.json' -File -ErrorAction SilentlyContinue
-).Count
+$profile = Get-OptionalProperty -Object $config -Name 'profile'
+$modelProvider = Get-OptionalProperty -Object $config -Name 'model_provider'
+$externalAiAllowed = Get-OptionalProperty -Object $config -Name 'external_ai_allowed'
+$jev = Get-OptionalProperty -Object $config -Name 'jev'
+$compaction = Get-OptionalProperty -Object $config -Name 'compaction'
+$jevEnabled = Get-OptionalProperty -Object $jev -Name 'enabled'
+$compactionEnabled = Get-OptionalProperty -Object $compaction -Name 'enabled'
+$preserveRaw = Get-OptionalProperty -Object $compaction -Name 'preserve_raw'
+
+$configWarnings = @()
+if ($null -eq $config) { $configWarnings += 'config.json is missing or unreadable' }
+if ([string]::IsNullOrWhiteSpace([string]$profile)) { $configWarnings += 'config.profile is missing' }
+if ([string]::IsNullOrWhiteSpace([string]$modelProvider)) { $configWarnings += 'config.model_provider is missing' }
+if ($null -eq $compaction) { $configWarnings += 'config.compaction is missing; rerun the current bootstrap with -Force to upgrade generated configuration' }
+if ($null -eq $jev) { $configWarnings += 'config.jev is missing; rerun the current bootstrap with -Force to upgrade generated configuration' }
+
+$migrationsPath = Join-Path $Root 'migrations'
+$importCount = if (Test-Path -LiteralPath $migrationsPath -PathType Container) {
+    @(Get-ChildItem -LiteralPath $migrationsPath -Filter 'import-*.json' -File -ErrorAction SilentlyContinue).Count
+}
+else {
+    0
+}
 
 [pscustomobject]@{
     root = $Root
-    profile = if ($null -ne $config) { $config.profile } else { $null }
-    model_provider = if ($null -ne $config) { $config.model_provider } else { $null }
-    external_ai_allowed = if ($null -ne $config) { $config.external_ai_allowed } else { $null }
-    jev_enabled = if ($null -ne $config) { $config.jev.enabled } else { $null }
-    compaction_enabled = if ($null -ne $config -and $null -ne $config.compaction) { $config.compaction.enabled } else { $false }
-    preserve_raw = if ($null -ne $config -and $null -ne $config.compaction) { $config.compaction.preserve_raw } else { $false }
+    profile = $profile
+    model_provider = $modelProvider
+    external_ai_allowed = $externalAiAllowed
+    jev_enabled = $jevEnabled
+    compaction_enabled = $compactionEnabled
+    preserve_raw = $preserveRaw
     legacy_import_manifests = $importCount
-    missing_files = $missing
-    healthy = ($missing.Count -eq 0)
+    config_error = $configError
+    config_warnings = @($configWarnings)
+    missing_files = @($missing)
+    healthy = ($missing.Count -eq 0 -and $null -eq $configError -and $configWarnings.Count -eq 0)
 }
 '@
 
@@ -1675,6 +1911,7 @@ $scripts = @{
     'Test-Staleness.ps1' = $testStaleness
     'Import-ExistingContext.ps1' = $importExistingContext
     'Test-ImportedContext.ps1' = $testImportedContext
+    'Test-ScriptSyntax.ps1' = $testScriptSyntax
     'Get-ContextMaintenance.ps1' = $getContextMaintenance
     'Save-Compaction.ps1' = $saveCompaction
     'Get-BranchSummaryContext.ps1' = $getBranchSummaryContext
@@ -1686,6 +1923,11 @@ $scripts = @{
 foreach ($name in $scripts.Keys) {
     Write-ManagedFile -Path (Join-Path (Join-Path $Root 'scripts') $name) -Content $scripts[$name]
 }
+
+Write-Host ""
+Write-Host "Validating generated PowerShell scripts..."
+& (Join-Path $Root 'scripts/Test-ScriptSyntax.ps1') -Root $Root | Out-Host
+Write-Host "Generated script syntax: PASSED"
 
 $legacySources = New-Object System.Collections.Generic.List[string]
 if (-not $SkipLegacyImport) {

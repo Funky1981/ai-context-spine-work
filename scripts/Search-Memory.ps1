@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)][string]$Pattern,
+    [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$Pattern,
     [string]$Project,
     [int]$Limit = 40,
     [switch]$IncludeImports,
@@ -35,7 +35,7 @@ if ($null -ne $rg) {
         & $rg.Source '--line-number' '--color' 'never' '--fixed-strings' '--glob' '*.md' '--glob' '*.txt' '--glob' '*.json' '--' $Pattern $searchRoot 2>$null
     }
     $all | Select-Object -First $Limit
-    exit 0
+    return
 }
 
 $matches = foreach ($searchRoot in $existing) {

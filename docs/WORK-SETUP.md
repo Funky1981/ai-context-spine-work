@@ -37,6 +37,7 @@ The migration is non-destructive:
 - the old files remain exactly where they are;
 - a raw snapshot is copied under ~/.agent-context/imports/;
 - an audit manifest is written under ~/.agent-context/migrations/;
+- Test-ImportedContext.ps1 immediately verifies source preservation and imported hashes/markers;
 - global memory is appended with SHA-256 import markers rather than replaced;
 - project memory is copied into ~/.agent-context/memory/projects/;
 - any conflicting project-memory file is preserved under a hash-suffixed imported filename rather than overwritten.

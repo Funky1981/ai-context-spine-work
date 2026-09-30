@@ -11,11 +11,32 @@ if (-not (Test-Path -LiteralPath $ManifestPath -PathType Leaf)) {
 }
 
 $manifest = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
+if ($null -eq $manifest.PSObject.Properties['actions']) {
+    throw "Import manifest is missing the actions collection: $ManifestPath"
+}
+$actions = @($manifest.actions)
 $failures = New-Object System.Collections.Generic.List[string]
 $checked = 0
 
-foreach ($action in @($manifest.actions)) {
+foreach ($action in $actions) {
     $checked++
+
+    if ($null -eq $action) {
+        $failures.Add("Import manifest contains a null action.")
+        continue
+    }
+    foreach ($requiredProperty in @('source','destination','action','sha256')) {
+        if ($null -eq $action.PSObject.Properties[$requiredProperty]) {
+            $failures.Add("Import action is missing required property '$requiredProperty'.")
+        }
+    }
+    if (@($failures | Where-Object { $_ -like "Import action is missing required property*" }).Count -gt 0 -and
+        ($null -eq $action.PSObject.Properties['source'] -or
+         $null -eq $action.PSObject.Properties['destination'] -or
+         $null -eq $action.PSObject.Properties['action'] -or
+         $null -eq $action.PSObject.Properties['sha256'])) {
+        continue
+    }
 
     if (-not (Test-Path -LiteralPath $action.source -PathType Leaf)) {
         $failures.Add("Original source is missing: $($action.source)")

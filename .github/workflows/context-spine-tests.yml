@@ -1,0 +1,41 @@
+name: Context Spine PowerShell Tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'bootstrap.ps1'
+      - 'scripts/**'
+      - 'adapters/**'
+      - 'tests/**'
+      - '.github/workflows/context-spine-tests.yml'
+  pull_request:
+    paths:
+      - 'bootstrap.ps1'
+      - 'scripts/**'
+      - 'adapters/**'
+      - 'tests/**'
+      - '.github/workflows/context-spine-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-powershell-51:
+    name: Windows PowerShell 5.1
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run smoke test
+        shell: powershell
+        run: .\tests\Smoke-Test.ps1
+
+  windows-powershell-7:
+    name: PowerShell 7
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run smoke test
+        shell: pwsh
+        run: .\tests\Smoke-Test.ps1

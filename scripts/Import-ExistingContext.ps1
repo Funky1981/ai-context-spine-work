@@ -227,6 +227,15 @@ foreach ($sourceInput in $Source) {
     Write-Host "Imported legacy context from: $sourceRoot"
     Write-Host "Original source was not modified or deleted."
     Write-Host "Audit manifest: $manifestPath"
+
+    $verifier = Join-Path $PSScriptRoot 'Test-ImportedContext.ps1'
+    if (Test-Path -LiteralPath $verifier -PathType Leaf) {
+        & $verifier -ManifestPath $manifestPath | Out-Host
+        Write-Host "Import verification: PASSED"
+    }
+    else {
+        Write-Warning "Test-ImportedContext.ps1 was not found; run an import verification after installing the full Context Spine."
+    }
 }
 
 $results

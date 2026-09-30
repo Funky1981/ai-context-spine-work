@@ -82,3 +82,26 @@ $errors
 ```
 
 Expected result: nothing is printed. If any parser error is shown, stop and do not run the shadow installer.
+
+
+## Step 4 — Verify your real context in the shadow copy
+
+Copy `scripts/Verify-WorkShadowContext.ps1` from GitHub Raw to:
+
+```text
+C:\Temp\ContextSpine\Verify-WorkShadowContext.ps1
+```
+
+Then run:
+
+```powershell
+& "C:\Temp\ContextSpine\Verify-WorkShadowContext.ps1"
+```
+
+Expected final result:
+
+```text
+WORK SHADOW CONTEXT VERIFICATION: PASSED
+```
+
+The verifier is read-only. It compares the live OpenCode context with the shadow import using SHA-256 hashes and reports memory, project, command, and skill counts. Stop if it reports any failure.

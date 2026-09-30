@@ -13,6 +13,9 @@ if (-not (Test-Path -LiteralPath $recordPath)) {
 }
 
 $record = Get-Content -LiteralPath $recordPath -Raw | ConvertFrom-Json
+if (-not (Test-Path -LiteralPath $record.path -PathType Container)) {
+    throw "Registered repository path no longer exists: $($record.path)"
+}
 $statePath = Join-Path (Join-Path $Root 'index') ($Project + '.state.json')
 $indexPath = Join-Path (Join-Path $Root 'index') ($Project + '.files.jsonl')
 
@@ -21,7 +24,7 @@ if (-not (Test-Path -LiteralPath $statePath) -or -not (Test-Path -LiteralPath $i
 }
 
 $state = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
-$entries = Get-Content -LiteralPath $indexPath | ForEach-Object { $_ | ConvertFrom-Json }
+$entries = @(Get-Content -LiteralPath $indexPath | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { $_ | ConvertFrom-Json })
 
 $topExtensions = $entries |
     Group-Object extension |

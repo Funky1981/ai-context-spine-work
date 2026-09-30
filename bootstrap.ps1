@@ -1151,7 +1151,7 @@ $results
 $testImportedContext = @'
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)][string]$ManifestPath
+    [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$ManifestPath
 )
 
 Set-StrictMode -Version Latest
@@ -1165,42 +1165,42 @@ $manifest = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
 if ($null -eq $manifest.PSObject.Properties['actions']) {
     throw "Import manifest is missing the actions collection: $ManifestPath"
 }
+
 $actions = @($manifest.actions)
-$failures = New-Object System.Collections.Generic.List[string]
+$failures = @()
 $checked = 0
 
 foreach ($action in $actions) {
     $checked++
 
     if ($null -eq $action) {
-        $failures.Add("Import manifest contains a null action.")
+        $failures += "Import manifest contains a null action."
         continue
     }
+
+    $missingProperties = @()
     foreach ($requiredProperty in @('source','destination','action','sha256')) {
         if ($null -eq $action.PSObject.Properties[$requiredProperty]) {
-            $failures.Add("Import action is missing required property '$requiredProperty'.")
+            $missingProperties += $requiredProperty
         }
     }
-    if (@($failures | Where-Object { $_ -like "Import action is missing required property*" }).Count -gt 0 -and
-        ($null -eq $action.PSObject.Properties['source'] -or
-         $null -eq $action.PSObject.Properties['destination'] -or
-         $null -eq $action.PSObject.Properties['action'] -or
-         $null -eq $action.PSObject.Properties['sha256'])) {
+    if ($missingProperties.Count -gt 0) {
+        $failures += "Import action is missing required properties: $($missingProperties -join ', ')."
         continue
     }
 
     if (-not (Test-Path -LiteralPath $action.source -PathType Leaf)) {
-        $failures.Add("Original source is missing: $($action.source)")
+        $failures += "Original source is missing: $($action.source)"
         continue
     }
 
     $sourceHash = (Get-FileHash -LiteralPath $action.source -Algorithm SHA256).Hash.ToLowerInvariant()
     if ($sourceHash -ne $action.sha256) {
-        $failures.Add("Original source changed since import: $($action.source)")
+        $failures += "Original source changed since import: $($action.source)"
     }
 
     if (-not (Test-Path -LiteralPath $action.destination -PathType Leaf)) {
-        $failures.Add("Imported destination is missing: $($action.destination)")
+        $failures += "Imported destination is missing: $($action.destination)"
         continue
     }
 
@@ -1208,36 +1208,38 @@ foreach ($action in $actions) {
         { $_ -in @('copied','identical-skip','conflict-preserved','conflict-identical-skip','canonical-created','canonical-identical-skip') } {
             $destHash = (Get-FileHash -LiteralPath $action.destination -Algorithm SHA256).Hash.ToLowerInvariant()
             if ($destHash -ne $action.sha256) {
-                $failures.Add("Imported copy hash mismatch: $($action.destination)")
+                $failures += "Imported copy hash mismatch: $($action.destination)"
             }
             break
         }
         { $_ -in @('canonical-appended','canonical-already-imported') } {
             $text = Get-Content -LiteralPath $action.destination -Raw
+            if ($null -eq $text) { $text = '' }
             $marker = "<!-- context-spine-import sha256:$($action.sha256) -->"
             if (-not $text.Contains($marker)) {
-                $failures.Add("Canonical memory is missing its import marker: $($action.destination)")
+                $failures += "Canonical memory is missing its import marker: $($action.destination)"
             }
             break
         }
         default {
-            $failures.Add("Unknown import action '$($action.action)' in manifest.")
+            $failures += "Unknown import action '$($action.action)' in manifest."
         }
     }
 }
 
+$failureList = @($failures)
 $result = [pscustomobject]@{
     manifest = $ManifestPath
-    source_root = $manifest.source_root
-    source_preserved = @($failures | Where-Object { $_ -like 'Original source*' }).Count -eq 0
+    source_root = if ($null -ne $manifest.PSObject.Properties['source_root']) { $manifest.source_root } else { $null }
+    source_preserved = @($failureList | Where-Object { $_ -like 'Original source*' }).Count -eq 0
     checked_actions = $checked
-    failures = @($failures)
-    verified = ($failures.Count -eq 0)
+    failures = $failureList
+    verified = ($failureList.Count -eq 0)
 }
 
 $result
 
-if ($failures.Count -gt 0) {
+if ($failureList.Count -gt 0) {
     throw "Existing-context import verification failed. No source cleanup has been attempted. Review the reported failures."
 }
 '@
@@ -1727,7 +1729,7 @@ if (-not (Test-Path -LiteralPath $scriptsDir -PathType Container)) {
     throw "Scripts directory not found: $scriptsDir"
 }
 
-$failures = New-Object System.Collections.Generic.List[object]
+$failures = @()
 $checked = 0
 
 Get-ChildItem -LiteralPath $scriptsDir -Filter '*.ps1' -File -ErrorAction Stop |
@@ -1740,22 +1742,22 @@ Get-ChildItem -LiteralPath $scriptsDir -Filter '*.ps1' -File -ErrorAction Stop |
             [void][ScriptBlock]::Create($content)
         }
         catch {
-            $failures.Add([pscustomobject]@{
+            $failures += [pscustomobject]@{
                 file = $_.FullName
                 message = $_.Exception.Message
-            })
+            }
         }
     }
 
 $result = [pscustomobject]@{
     scripts_checked = $checked
-    parse_failures = $failures.Count
+    parse_failures = @($failures).Count
     failures = @($failures)
-    valid = ($failures.Count -eq 0)
+    valid = (@($failures).Count -eq 0)
 }
 $result
 
-if ($failures.Count -gt 0) {
+if (@($failures).Count -gt 0) {
     throw "One or more generated Context Spine PowerShell scripts failed parser validation."
 }
 '@

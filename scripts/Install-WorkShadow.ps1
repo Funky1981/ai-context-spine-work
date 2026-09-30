@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$BootstrapPath = (Join-Path $PSScriptRoot '..\bootstrap.ps1'),
+    [string]$BootstrapPath = (Join-Path $PSScriptRoot 'bootstrap.ps1'),
     [string]$ShadowRoot = (Join-Path $HOME '.context-spine-shadow'),
     [string]$ExistingOpenCode = (Join-Path (Join-Path $HOME '.config') 'opencode')
 )

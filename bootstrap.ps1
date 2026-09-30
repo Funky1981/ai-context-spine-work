@@ -1734,23 +1734,16 @@ Get-ChildItem -LiteralPath $scriptsDir -Filter '*.ps1' -File -ErrorAction Stop |
     Sort-Object Name |
     ForEach-Object {
         $checked++
-        [System.Management.Automation.Language.Token[]]$tokens = $null
-        [System.Management.Automation.Language.ParseError[]]$parseErrors = $null
-        [void][System.Management.Automation.Language.Parser]::ParseFile(
-            $_.FullName,
-            [ref]$tokens,
-            [ref]$parseErrors
-        )
-
-        foreach ($parseError in @($parseErrors)) {
-            if ($null -ne $parseError) {
-                $failures.Add([pscustomobject]@{
-                    file = $_.FullName
-                    message = $parseError.Message
-                    line = $parseError.Extent.StartLineNumber
-                    column = $parseError.Extent.StartColumnNumber
-                })
-            }
+        try {
+            $content = Get-Content -LiteralPath $_.FullName -Raw -ErrorAction Stop
+            if ($null -eq $content) { $content = '' }
+            [void][ScriptBlock]::Create($content)
+        }
+        catch {
+            $failures.Add([pscustomobject]@{
+                file = $_.FullName
+                message = $_.Exception.Message
+            })
         }
     }
 

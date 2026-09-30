@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)][string]$Project,
+    [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$Project,
     [string]$Root = (Join-Path $HOME '.agent-context'),
     [int]$TriggerEstimatedTokens = 0,
     [int]$KeepRecentEstimatedTokens = 0
@@ -13,28 +13,54 @@ function Get-FileSha256([string]$Path) {
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
 }
 
+function Get-OptionalProperty {
+    param(
+        [object]$Object,
+        [Parameter(Mandatory = $true)][string]$Name,
+        $Default = $null
+    )
+    if ($null -eq $Object) { return $Default }
+    $property = $Object.PSObject.Properties[$Name]
+    if ($null -eq $property) { return $Default }
+    return $property.Value
+}
+
 $configPath = Join-Path $Root 'config.json'
 $config = $null
-if (Test-Path -LiteralPath $configPath) {
+if (Test-Path -LiteralPath $configPath -PathType Leaf) {
     $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
 }
 
+$compaction = Get-OptionalProperty -Object $config -Name 'compaction'
+$enabled = Get-OptionalProperty -Object $compaction -Name 'enabled' -Default $true
+
 if ($TriggerEstimatedTokens -le 0) {
-    if ($null -ne $config -and $null -ne $config.compaction -and $config.compaction.trigger_estimated_tokens) {
-        $TriggerEstimatedTokens = [int]$config.compaction.trigger_estimated_tokens
-    }
-    else {
-        $TriggerEstimatedTokens = 60000
-    }
+    $configuredTrigger = Get-OptionalProperty -Object $compaction -Name 'trigger_estimated_tokens'
+    $TriggerEstimatedTokens = if ($null -ne $configuredTrigger) { [int]$configuredTrigger } else { 60000 }
 }
 
 if ($KeepRecentEstimatedTokens -le 0) {
-    if ($null -ne $config -and $null -ne $config.compaction -and $config.compaction.keep_recent_estimated_tokens) {
-        $KeepRecentEstimatedTokens = [int]$config.compaction.keep_recent_estimated_tokens
+    $configuredKeep = Get-OptionalProperty -Object $compaction -Name 'keep_recent_estimated_tokens'
+    $KeepRecentEstimatedTokens = if ($null -ne $configuredKeep) { [int]$configuredKeep } else { 20000 }
+}
+
+if ($TriggerEstimatedTokens -lt 1) { throw "TriggerEstimatedTokens must be greater than zero." }
+if ($KeepRecentEstimatedTokens -lt 0) { throw "KeepRecentEstimatedTokens cannot be negative." }
+
+if (-not [bool]$enabled) {
+    [pscustomobject]@{
+        project = $Project
+        compaction_required = $false
+        compaction_enabled = $false
+        uncompacted_estimated_tokens = 0
+        trigger_estimated_tokens = $TriggerEstimatedTokens
+        keep_recent_estimated_tokens = $KeepRecentEstimatedTokens
+        candidate_file_count = 0
+        kept_recent_file_count = 0
+        plan_path = $null
+        raw_sources_preserved = $true
     }
-    else {
-        $KeepRecentEstimatedTokens = 20000
-    }
+    return
 }
 
 $sessionRoots = @(
@@ -44,18 +70,26 @@ $sessionRoots = @(
 
 $manifestPath = Join-Path (Join-Path (Join-Path $Root 'context/compactions') $Project) 'manifest.jsonl'
 $alreadyCompacted = @{}
-if (Test-Path -LiteralPath $manifestPath) {
-    Get-Content -LiteralPath $manifestPath | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object {
-        try {
-            $entry = $_ | ConvertFrom-Json
-            foreach ($source in @($entry.source_files)) {
-                if ($null -ne $source.sha256) { $alreadyCompacted[$source.sha256] = $true }
+if (Test-Path -LiteralPath $manifestPath -PathType Leaf) {
+    Get-Content -LiteralPath $manifestPath |
+        Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+        ForEach-Object {
+            try {
+                $entry = $_ | ConvertFrom-Json
+                $sources = Get-OptionalProperty -Object $entry -Name 'source_files' -Default @()
+                foreach ($source in @($sources)) {
+                    $path = Get-OptionalProperty -Object $source -Name 'path'
+                    $sha = Get-OptionalProperty -Object $source -Name 'sha256'
+                    if (-not [string]::IsNullOrWhiteSpace($path) -and -not [string]::IsNullOrWhiteSpace($sha)) {
+                        $key = "$path|$sha"
+                        $alreadyCompacted[$key] = $true
+                    }
+                }
+            }
+            catch {
+                Write-Warning "Ignoring unreadable compaction manifest line: $manifestPath"
             }
         }
-        catch {
-            Write-Warning "Ignoring unreadable compaction manifest line: $manifestPath"
-        }
-    }
 }
 
 $items = New-Object System.Collections.Generic.List[object]
@@ -66,8 +100,10 @@ foreach ($sessionRoot in $sessionRoots) {
         Where-Object { $_.Extension.ToLowerInvariant() -in @('.md','.txt','.json') } |
         ForEach-Object {
             $hash = Get-FileSha256 $_.FullName
-            if (-not $alreadyCompacted.ContainsKey($hash)) {
+            $key = "$($_.FullName)|$hash"
+            if (-not $alreadyCompacted.ContainsKey($key)) {
                 $text = Get-Content -LiteralPath $_.FullName -Raw
+                if ($null -eq $text) { $text = '' }
                 $tokens = [Math]::Ceiling($text.Length / 4.0)
                 $items.Add([pscustomobject]@{
                     path = $_.FullName
@@ -122,6 +158,7 @@ if ($compactionRequired) {
 [pscustomobject]@{
     project = $Project
     compaction_required = $compactionRequired
+    compaction_enabled = $true
     uncompacted_estimated_tokens = $totalTokens
     trigger_estimated_tokens = $TriggerEstimatedTokens
     keep_recent_estimated_tokens = $KeepRecentEstimatedTokens

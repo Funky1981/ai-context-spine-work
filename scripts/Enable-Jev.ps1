@@ -8,11 +8,15 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $configPath = Join-Path $Root 'config.json'
-if (-not (Test-Path -LiteralPath $configPath)) {
+if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) {
     throw "Missing config: $configPath"
 }
 
 $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+if ($null -eq $config.PSObject.Properties['profile']) { throw "config.profile is missing." }
+if ($null -eq $config.PSObject.Properties['external_ai_allowed']) { throw "config.external_ai_allowed is missing." }
+if ($null -eq $config.PSObject.Properties['jev'] -or $null -eq $config.jev) { throw "config.jev is missing." }
+if ($null -eq $config.jev.PSObject.Properties['enabled']) { throw "config.jev.enabled is missing." }
 
 if ($config.profile -eq 'work' -and -not $ApprovedForWork) {
     throw "Work profile is GLM-only by default. Jev remains blocked. Use -ApprovedForWork only after formal employer approval for this external service."

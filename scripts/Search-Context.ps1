@@ -2,7 +2,7 @@
 param(
     [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$Project,
     [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$Pattern,
-    [int]$Limit = 40,
+    [ValidateRange(1,10000)][int]$Limit = 40,
     [string]$Root = (Join-Path $HOME '.agent-context')
 )
 

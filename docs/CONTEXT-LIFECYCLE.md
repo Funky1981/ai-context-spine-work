@@ -1,4 +1,4 @@
-# Context Lifecycle, Migration, Compaction and Branch Summaries
+# Context Lifecycle, Migration, Compaction and Branch/Fork Summaries
 
 The Context Spine follows one non-negotiable rule:
 
@@ -31,41 +31,53 @@ To deliberately skip legacy discovery:
 
     .\bootstrap.ps1 -Profile work -SkipLegacyImport
 
-## Compaction
+## Two layers of compaction
 
-Compaction reduces what an agent needs to reload while preserving the originals.
+### Active OpenCode session
+
+OpenCode V2 already performs context-window compaction automatically when a session approaches the selected model's context limit. Context Spine does not replace or disable that behavior.
+
+This is the fast, in-session layer.
+
+### Durable Context Spine history
+
+Context Spine separately compacts older persisted handovers/session notes so future agents do not need to reload every old file.
 
 Raw handovers/sessions live beneath:
 
     memory/projects/<project>/sessions/
     memory/projects/<project>/handovers/
 
-Get-ContextMaintenance.ps1 estimates the uncompacted token load and creates a deterministic plan when the configured threshold is crossed. The default soft thresholds are:
+Get-ContextMaintenance.ps1 estimates the uncompacted persisted-context load and creates a deterministic plan when the configured soft threshold is crossed. Defaults:
 
 - trigger: 60,000 estimated tokens
 - keep recent: 20,000 estimated tokens
 
-The active coding agent performs the summary. No additional model or external API is required. On the work profile this means the already-approved GLM/OpenCode path can do the summarization.
+The active coding agent performs the summary; no second model or external API is required. On the work profile, the already-approved OpenCode/GLM path can do this work.
 
 Save-Compaction.ps1 verifies that every planned raw source still exists and has the same SHA-256 hash, validates the structured summary headings, saves the derived summary under context/compactions/<project>/, and records all source hashes in manifest.jsonl.
 
 It does not delete or modify the raw files.
 
-## Branch summaries
+## Branch and session-fork summaries
 
-Before moving away from an unfinished Git branch, Get-BranchSummaryContext.ps1 records:
+The Pi-inspired branch-summary idea is broader than Git.
 
-- from/to branches
+For an OpenCode/session fork or a deliberate alternative approach, ctx-branch-summary records the line of work being left so it remains retrievable after the fork.
+
+For a Git branch switch, Get-BranchSummaryContext.ps1 can additionally record:
+
+- from/to Git branches
 - merge base
 - commits unique to the branch being left
 - changed files
 - recent Context Spine session files
 
-The active coding agent turns that evidence into a structured branch summary and Save-BranchSummary.ps1 stores it under:
+Save-BranchSummary.ps1 stores either kind of structured summary under:
 
     context/branches/<project>/
 
-Again, this is additive: Git history, repository files and raw session memory are untouched.
+This remains additive: Git history, repository files, coding-session history and raw Context Spine memory are untouched.
 
 ## Retrieval
 
@@ -73,13 +85,13 @@ Use:
 
     ~/.agent-context/scripts/Search-Memory.ps1 -Project "my-project" -Pattern "authentication"
 
-This searches canonical project memory plus compaction and branch summaries.
+This searches canonical project memory plus compaction and branch/fork summaries.
 
 Add -IncludeImports only when you need to inspect the immutable raw migration snapshots as well.
 
 ## Structured summary contract
 
-Compaction and branch summaries use:
+Compaction and branch/fork summaries use:
 
     ## Goal
     ## Constraints & Preferences
@@ -91,4 +103,4 @@ Compaction and branch summaries use:
     ## Next Steps
     ## Critical Context
 
-This deliberately borrows the useful lifecycle concepts from Pi while keeping Context Spine agent-independent and local-first.
+This borrows the useful lifecycle concepts from Pi while keeping Context Spine agent-independent and local-first.

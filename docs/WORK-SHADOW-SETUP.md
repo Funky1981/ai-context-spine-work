@@ -32,3 +32,16 @@ Original OpenCode setup was not modified.
 ```
 
 Stop if any error is reported. Do not continue to the shadow installation until the backup reports `BACKUP VERIFIED: PASSED`.
+
+
+## Step 1A — If Step 1 prints nothing
+
+Run this exact command:
+
+```powershell
+Get-Item "C:\Temp\ContextSpine\Backup-ExistingOpenCode.ps1" | Select-Object FullName,Length,LastWriteTime
+```
+
+Expected result: one row showing the full path, a non-zero file length, and a timestamp.
+
+If PowerShell reports that the path does not exist, stop. Do not run any other Context Spine command.

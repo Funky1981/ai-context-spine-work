@@ -64,3 +64,21 @@ The script is hard-wired to use:
 ```
 
 It refuses to use either the live OpenCode directory or the existing `.agent-context` directory as its target.
+
+
+## Step 3 — Verify the copied shadow installer
+
+Run:
+
+```powershell
+$errors = $null
+[System.Management.Automation.Language.Parser]::ParseFile(
+    (Resolve-Path "C:\Temp\ContextSpine\Install-WorkShadow.ps1"),
+    [ref]$null,
+    [ref]$errors
+) | Out-Null
+
+$errors
+```
+
+Expected result: nothing is printed. If any parser error is shown, stop and do not run the shadow installer.

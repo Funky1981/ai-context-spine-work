@@ -154,16 +154,36 @@ try {
     $rawAfter = @(Get-ChildItem -LiteralPath $sessionsDir -File).Count
     Assert-True -Condition ($rawBefore -eq $rawAfter) -Message "Compaction must preserve all raw session files."
 
+    # Prove compaction identity is path + hash, not hash alone.
+    # First compact duplicate A while a newer filler is retained.
     $duplicateA = Join-Path $sessionsDir 'duplicate-a.md'
-    $duplicateB = Join-Path $sessionsDir 'duplicate-b.md'
     ('duplicate-content ' + ('z' * 300)) | Set-Content -LiteralPath $duplicateA -Encoding UTF8
+    Start-Sleep -Milliseconds 20
+    $fillerOne = Join-Path $sessionsDir 'filler-one.md'
+    ('newer-filler ' + ('q' * 300)) | Set-Content -LiteralPath $fillerOne -Encoding UTF8
+
+    $duplicateFirstMaintenance = & (Join-Path $ctxRoot 'scripts/Get-ContextMaintenance.ps1') -Project 'demo-project' -Root $ctxRoot -TriggerEstimatedTokens 1 -KeepRecentEstimatedTokens 100
+    Assert-True -Condition ([bool]$duplicateFirstMaintenance.compaction_required) -Message "First duplicate test should produce a compaction plan."
+    $duplicateFirstPlan = Get-Content -LiteralPath $duplicateFirstMaintenance.plan_path -Raw | ConvertFrom-Json
+    $firstPaths = @($duplicateFirstPlan.source_files | ForEach-Object { $_.path })
+    Assert-True -Condition ($firstPaths -contains $duplicateA) -Message "Duplicate-content file A should be selected for first compaction."
+
+    $duplicateFirstSummary = Join-Path $tempRoot 'duplicate-first-summary.md'
+    Write-ValidSummary -Path $duplicateFirstSummary
+    & (Join-Path $ctxRoot 'scripts/Save-Compaction.ps1') -Project 'demo-project' -PlanPath $duplicateFirstMaintenance.plan_path -SummaryPath $duplicateFirstSummary -Root $ctxRoot | Out-Null
+
+    # Now add an identical file at a different path. Hash-only bookkeeping would incorrectly suppress it.
+    $duplicateB = Join-Path $sessionsDir 'duplicate-b.md'
     Copy-Item -LiteralPath $duplicateA -Destination $duplicateB
-    $duplicateMaintenance = & (Join-Path $ctxRoot 'scripts/Get-ContextMaintenance.ps1') -Project 'demo-project' -Root $ctxRoot -TriggerEstimatedTokens 1 -KeepRecentEstimatedTokens 0
-    Assert-True -Condition ([bool]$duplicateMaintenance.compaction_required) -Message "Duplicate-session test should produce a compaction plan."
-    $duplicatePlan = Get-Content -LiteralPath $duplicateMaintenance.plan_path -Raw | ConvertFrom-Json
-    $plannedPaths = @($duplicatePlan.source_files | ForEach-Object { $_.path })
-    Assert-True -Condition ($plannedPaths -contains $duplicateA) -Message "Duplicate-content file A should remain independently trackable."
-    Assert-True -Condition ($plannedPaths -contains $duplicateB) -Message "Duplicate-content file B should remain independently trackable."
+    Start-Sleep -Milliseconds 20
+    $fillerTwo = Join-Path $sessionsDir 'filler-two.md'
+    ('newest-filler ' + ('r' * 300)) | Set-Content -LiteralPath $fillerTwo -Encoding UTF8
+
+    $duplicateSecondMaintenance = & (Join-Path $ctxRoot 'scripts/Get-ContextMaintenance.ps1') -Project 'demo-project' -Root $ctxRoot -TriggerEstimatedTokens 1 -KeepRecentEstimatedTokens 100
+    Assert-True -Condition ([bool]$duplicateSecondMaintenance.compaction_required) -Message "Second duplicate test should produce a compaction plan."
+    $duplicateSecondPlan = Get-Content -LiteralPath $duplicateSecondMaintenance.plan_path -Raw | ConvertFrom-Json
+    $secondPaths = @($duplicateSecondPlan.source_files | ForEach-Object { $_.path })
+    Assert-True -Condition ($secondPaths -contains $duplicateB) -Message "Same-content file at a different path must remain independently trackable."
 
     $sourceHash = (Get-FileHash -LiteralPath (Join-Path $legacyRoot 'memory/MEMORY.md') -Algorithm SHA256).Hash.ToLowerInvariant()
     & $bootstrap -Profile work -Root $ctxRoot -ImportContextPath $legacyRoot -SkipLegacyImport -Force

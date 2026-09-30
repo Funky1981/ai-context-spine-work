@@ -1,8 +1,14 @@
 ---
-description: Create a concise durable handover for the current coding task
+description: Create a durable handover and run Context Spine maintenance
 ---
 
-Create or update a local handover for the current task.
+Create a new timestamped handover for the current registered project.
+
+Store the raw handover as a new Markdown file beneath:
+
+memory/projects/<project>/sessions/
+
+Do not overwrite a previous session/handover file.
 
 Capture:
 - project and current objective
@@ -14,3 +20,8 @@ Capture:
 - exact next action
 
 Do not include secrets. Prefer repository references over copying large source blocks.
+
+After saving the raw handover:
+1. Run ~/.agent-context/scripts/Get-ContextMaintenance.ps1 -Project "<project>".
+2. If compaction_required is true, execute the ctx-compact workflow automatically.
+3. Never delete or rewrite the raw handover/session files after compaction.

@@ -1,8 +1,8 @@
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)][string]$Project,
-    [Parameter(Mandatory = $true)][string]$PlanPath,
-    [Parameter(Mandatory = $true)][string]$SummaryPath,
+    [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$Project,
+    [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$PlanPath,
+    [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$SummaryPath,
     [string]$Root = (Join-Path $HOME '.agent-context')
 )
 
@@ -17,6 +17,11 @@ if (-not (Test-Path -LiteralPath $SummaryPath -PathType Leaf)) {
 }
 
 $plan = Get-Content -LiteralPath $PlanPath -Raw | ConvertFrom-Json
+foreach ($requiredProperty in @('project','source_files','kept_recent_files')) {
+    if ($null -eq $plan.PSObject.Properties[$requiredProperty]) {
+        throw "Compaction plan is missing required property '$requiredProperty'."
+    }
+}
 if ($plan.project -ne $Project) {
     throw "Plan project '$($plan.project)' does not match requested project '$Project'."
 }

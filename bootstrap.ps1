@@ -361,31 +361,39 @@ Hard rule: compaction is additive. Never delete, rewrite, truncate, move or repl
 
 $commandBranchSummary = @'
 ---
-description: Preserve the work being left behind when moving to another Git branch
+description: Preserve context when forking a coding-session path or leaving unfinished Git branch work
 ---
 
-Create a Context Spine branch summary before leaving the current branch. The target branch is in $ARGUMENTS.
+Create a Context Spine branch/fork summary before leaving an unfinished line of work. The target or new branch/fork label is in $ARGUMENTS.
 
+Use the active conversation/session as the primary evidence.
+
+If this is also a Git branch switch:
 1. Determine the current registered project slug and current Git branch.
-2. Run ~/.agent-context/scripts/Get-BranchSummaryContext.ps1 -Project "<slug>" -ToBranch "<target>".
-3. Read the returned changed-file list, commits, recent session files and only the repository files needed to understand the paused work.
-4. Produce a concise structured summary using exactly these headings:
-   - ## Goal
-   - ## Constraints & Preferences
-   - ## Progress
-     - ### Done
-     - ### In Progress
-     - ### Blocked
-   - ## Key Decisions
-   - ## Next Steps
-   - ## Critical Context
-5. Explicitly record the from-branch, to-branch, common ancestor and materially read/modified files.
-6. Write the draft summary to a temporary local Markdown file.
-7. Persist it with Save-BranchSummary.ps1.
-8. Delete only the temporary draft after the save succeeds.
-9. Continue with the branch switch only if the user already requested it.
+2. Run ~/.agent-context/scripts/Get-BranchSummaryContext.ps1 -Project "<slug>" -ToBranch "<target-git-branch>".
+3. Use the returned merge base, commits, changed files and recent session files as additional evidence.
 
-Hard rule: never delete or rewrite Git history, source files or raw Context Spine session memory as part of branch summarization.
+If this is an OpenCode/session fork or simply an alternative approach rather than a Git branch:
+1. Record the current session/fork identifier when available.
+2. Use a clear human-readable from/to label for the path being left and the path being entered.
+3. Preserve the decisions, experiments and unresolved work from the path being left.
+
+Produce a concise structured summary using exactly these headings:
+- ## Goal
+- ## Constraints & Preferences
+- ## Progress
+  - ### Done
+  - ### In Progress
+  - ### Blocked
+- ## Key Decisions
+- ## Next Steps
+- ## Critical Context
+
+Preserve exact file paths, function/component names, errors, important evidence and materially read/modified files. Do not invent missing context.
+
+Write the draft summary to a temporary local Markdown file, then persist it with Save-BranchSummary.ps1 using the from/to branch or fork labels. Delete only the temporary draft after the save succeeds.
+
+Hard rule: branch/fork summarization is additive. Never delete or rewrite Git history, repository files, session history or raw Context Spine memory.
 '@
 
 $registerProject = @'
@@ -1071,9 +1079,91 @@ foreach ($sourceInput in $Source) {
     Write-Host "Imported legacy context from: $sourceRoot"
     Write-Host "Original source was not modified or deleted."
     Write-Host "Audit manifest: $manifestPath"
+
+    $verifier = Join-Path $PSScriptRoot 'Test-ImportedContext.ps1'
+    if (Test-Path -LiteralPath $verifier -PathType Leaf) {
+        & $verifier -ManifestPath $manifestPath | Out-Host
+        Write-Host "Import verification: PASSED"
+    }
+    else {
+        Write-Warning "Test-ImportedContext.ps1 was not found; run an import verification after installing the full Context Spine."
+    }
 }
 
 $results
+'@
+
+$testImportedContext = @'
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory = $true)][string]$ManifestPath
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+
+if (-not (Test-Path -LiteralPath $ManifestPath -PathType Leaf)) {
+    throw "Import manifest not found: $ManifestPath"
+}
+
+$manifest = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
+$failures = New-Object System.Collections.Generic.List[string]
+$checked = 0
+
+foreach ($action in @($manifest.actions)) {
+    $checked++
+
+    if (-not (Test-Path -LiteralPath $action.source -PathType Leaf)) {
+        $failures.Add("Original source is missing: $($action.source)")
+        continue
+    }
+
+    $sourceHash = (Get-FileHash -LiteralPath $action.source -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($sourceHash -ne $action.sha256) {
+        $failures.Add("Original source changed since import: $($action.source)")
+    }
+
+    if (-not (Test-Path -LiteralPath $action.destination -PathType Leaf)) {
+        $failures.Add("Imported destination is missing: $($action.destination)")
+        continue
+    }
+
+    switch ($action.action) {
+        { $_ -in @('copied','identical-skip','conflict-preserved','conflict-identical-skip','canonical-created','canonical-identical-skip') } {
+            $destHash = (Get-FileHash -LiteralPath $action.destination -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($destHash -ne $action.sha256) {
+                $failures.Add("Imported copy hash mismatch: $($action.destination)")
+            }
+            break
+        }
+        { $_ -in @('canonical-appended','canonical-already-imported') } {
+            $text = Get-Content -LiteralPath $action.destination -Raw
+            $marker = "<!-- context-spine-import sha256:$($action.sha256) -->"
+            if (-not $text.Contains($marker)) {
+                $failures.Add("Canonical memory is missing its import marker: $($action.destination)")
+            }
+            break
+        }
+        default {
+            $failures.Add("Unknown import action '$($action.action)' in manifest.")
+        }
+    }
+}
+
+$result = [pscustomobject]@{
+    manifest = $ManifestPath
+    source_root = $manifest.source_root
+    source_preserved = ($failures | Where-Object { $_ -like 'Original source*' }).Count -eq 0
+    checked_actions = $checked
+    failures = @($failures)
+    verified = ($failures.Count -eq 0)
+}
+
+$result
+
+if ($failures.Count -gt 0) {
+    throw "Existing-context import verification failed. No source cleanup has been attempted. Review the reported failures."
+}
 '@
 
 $getContextMaintenance = @'
@@ -1504,6 +1594,7 @@ $required = @(
     'scripts/New-ProjectSkill.ps1',
     'scripts/Test-Staleness.ps1',
     'scripts/Import-ExistingContext.ps1',
+    'scripts/Test-ImportedContext.ps1',
     'scripts/Get-ContextMaintenance.ps1',
     'scripts/Save-Compaction.ps1',
     'scripts/Get-BranchSummaryContext.ps1',
@@ -1583,6 +1674,7 @@ $scripts = @{
     'New-ProjectSkill.ps1' = $newProjectSkill
     'Test-Staleness.ps1' = $testStaleness
     'Import-ExistingContext.ps1' = $importExistingContext
+    'Test-ImportedContext.ps1' = $testImportedContext
     'Get-ContextMaintenance.ps1' = $getContextMaintenance
     'Save-Compaction.ps1' = $saveCompaction
     'Get-BranchSummaryContext.ps1' = $getBranchSummaryContext

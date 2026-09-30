@@ -57,7 +57,7 @@ foreach ($action in @($manifest.actions)) {
 $result = [pscustomobject]@{
     manifest = $ManifestPath
     source_root = $manifest.source_root
-    source_preserved = ($failures | Where-Object { $_ -like 'Original source*' }).Count -eq 0
+    source_preserved = @($failures | Where-Object { $_ -like 'Original source*' }).Count -eq 0
     checked_actions = $checked
     failures = @($failures)
     verified = ($failures.Count -eq 0)

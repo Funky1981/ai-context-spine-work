@@ -24,7 +24,10 @@ if (-not (Test-Path -LiteralPath $recordPath)) {
 }
 
 $record = Get-Content -LiteralPath $recordPath -Raw | ConvertFrom-Json
-$projectPath = $record.path
+$projectPath = [string]$record.path
+if (-not (Test-Path -LiteralPath $projectPath -PathType Container)) {
+    throw "Registered repository path no longer exists: $projectPath"
+}
 
 $indexDir = Join-Path $Root 'index'
 New-Item -ItemType Directory -Force -Path $indexDir | Out-Null
@@ -35,7 +38,7 @@ $allowedExtensions = @(
     '.yaml','.yml','.toml','.sql','.ps1','.psm1','.py','.sh',
     '.html','.css','.scss','.xml','.ini','.conf','.env.example'
 )
-$allowedNames = @('Dockerfile','Makefile','README','AGENTS.md','.editorconfig','.gitignore')
+$allowedNames = @('Dockerfile','Makefile','README','AGENTS.md','.editorconfig','.gitignore','.env.example')
 $skipPattern = '[\\/](\.git|node_modules|bin|obj|dist|build|coverage|vendor|\.venv|venv|\.next|target)[\\/]'
 
 $entries = New-Object System.Collections.Generic.List[object]

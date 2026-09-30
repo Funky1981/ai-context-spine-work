@@ -45,3 +45,22 @@ Get-Item "C:\Temp\ContextSpine\Backup-ExistingOpenCode.ps1" | Select-Object Full
 Expected result: one row showing the full path, a non-zero file length, and a timestamp.
 
 If PowerShell reports that the path does not exist, stop. Do not run any other Context Spine command.
+
+
+## Step 2 — Prepare the isolated shadow installer
+
+Copy `scripts/Install-WorkShadow.ps1` from GitHub Raw to:
+
+```text
+C:\Temp\ContextSpine\Install-WorkShadow.ps1
+```
+
+Do not run it yet.
+
+The script is hard-wired to use:
+
+```text
+%USERPROFILE%\.context-spine-shadow
+```
+
+It refuses to use either the live OpenCode directory or the existing `.agent-context` directory as its target.

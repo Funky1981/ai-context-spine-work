@@ -19,6 +19,7 @@ $required = @(
     'scripts/New-ProjectSkill.ps1',
     'scripts/Test-Staleness.ps1',
     'scripts/Import-ExistingContext.ps1',
+    'scripts/Test-ImportedContext.ps1',
     'scripts/Get-ContextMaintenance.ps1',
     'scripts/Save-Compaction.ps1',
     'scripts/Get-BranchSummaryContext.ps1',

@@ -1734,8 +1734,8 @@ Get-ChildItem -LiteralPath $scriptsDir -Filter '*.ps1' -File -ErrorAction Stop |
     Sort-Object Name |
     ForEach-Object {
         $checked++
-        $tokens = $null
-        $parseErrors = $null
+        [System.Management.Automation.Language.Token[]]$tokens = $null
+        [System.Management.Automation.Language.ParseError[]]$parseErrors = $null
         [void][System.Management.Automation.Language.Parser]::ParseFile(
             $_.FullName,
             [ref]$tokens,

@@ -90,7 +90,7 @@ function Merge-GlobalMemory {
     if (-not (Test-Path -LiteralPath $DestinationPath)) {
         $parent = Split-Path -Parent $DestinationPath
         New-Item -ItemType Directory -Force -Path $parent | Out-Null
-        $sourceText | Set-Content -LiteralPath $DestinationPath -Encoding UTF8
+        Copy-Item -LiteralPath $SourcePath -Destination $DestinationPath
         return [pscustomobject]@{ action = 'canonical-created'; path = $DestinationPath; sha256 = $sourceHash }
     }
 
@@ -146,7 +146,7 @@ foreach ($sourceInput in $Source) {
     $isOpenCodeRoot = Test-Path -LiteralPath $memoryCandidate -PathType Container
     $memoryRoot = if ($isOpenCodeRoot) { $memoryCandidate } else { $sourceRoot }
 
-    $snapshotFiles = if ($isOpenCodeRoot) {
+    $snapshotFiles = @(if ($isOpenCodeRoot) {
         Get-ChildItem -LiteralPath $sourceRoot -Recurse -File -ErrorAction SilentlyContinue |
             Where-Object {
                 $rel = Get-RelativePathCompat $sourceRoot $_.FullName
@@ -155,7 +155,7 @@ foreach ($sourceInput in $Source) {
     }
     else {
         Get-ChildItem -LiteralPath $sourceRoot -Recurse -File -ErrorAction SilentlyContinue
-    }
+    })
 
     $actions = New-Object System.Collections.Generic.List[object]
 

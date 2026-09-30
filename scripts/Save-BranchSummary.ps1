@@ -1,9 +1,9 @@
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)][string]$Project,
-    [Parameter(Mandatory = $true)][string]$FromBranch,
-    [Parameter(Mandatory = $true)][string]$ToBranch,
-    [Parameter(Mandatory = $true)][string]$SummaryPath,
+    [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$Project,
+    [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$FromBranch,
+    [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$ToBranch,
+    [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string]$SummaryPath,
     [string]$CommonAncestor,
     [string]$Root = (Join-Path $HOME '.agent-context')
 )

@@ -37,7 +37,8 @@ Import-ExistingContext.ps1:
 - uses SHA-256 hashes to identify identical content;
 - appends global memory rather than replacing it;
 - preserves both versions when project-memory filenames conflict;
-- records an audit manifest of import actions.
+- records an audit manifest of import actions;
+- runs Test-ImportedContext.ps1 immediately after each migration and fails closed on hash/marker mismatches.
 
 The default bootstrap only auto-discovers the user's legacy ~/.config/opencode/ location. Other context roots must be supplied explicitly with -ImportContextPath.
 

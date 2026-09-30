@@ -8,6 +8,22 @@
     "mode": "local-lexical",
     "store_content": false
   },
+  "migration": {
+    "auto_import_legacy_opencode": true,
+    "preserve_sources": true
+  },
+  "compaction": {
+    "enabled": true,
+    "trigger_estimated_tokens": 60000,
+    "keep_recent_estimated_tokens": 20000,
+    "preserve_raw": true,
+    "summarizer": "active-agent"
+  },
+  "branch_summary": {
+    "enabled": true,
+    "preserve_raw": true,
+    "summarizer": "active-agent"
+  },
   "jev": {
     "enabled": false,
     "model": "jev-latest",

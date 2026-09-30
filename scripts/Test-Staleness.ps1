@@ -25,6 +25,9 @@ if (-not (Test-Path -LiteralPath $recordPath) -or -not (Test-Path -LiteralPath $
 }
 
 $record = Get-Content -LiteralPath $recordPath -Raw | ConvertFrom-Json
+if (-not (Test-Path -LiteralPath $record.path -PathType Container)) {
+    throw "Registered repository path no longer exists: $($record.path)"
+}
 $oldState = Get-Content -LiteralPath $statePath -Raw | ConvertFrom-Json
 
 $allowedExtensions = @(
@@ -33,7 +36,7 @@ $allowedExtensions = @(
     '.yaml','.yml','.toml','.sql','.ps1','.psm1','.py','.sh',
     '.html','.css','.scss','.xml','.ini','.conf','.env.example'
 )
-$allowedNames = @('Dockerfile','Makefile','README','AGENTS.md','.editorconfig','.gitignore')
+$allowedNames = @('Dockerfile','Makefile','README','AGENTS.md','.editorconfig','.gitignore','.env.example')
 $skipPattern = '[\\/](\.git|node_modules|bin|obj|dist|build|coverage|vendor|\.venv|venv|\.next|target)[\\/]'
 $aggregate = New-Object System.Text.StringBuilder
 $count = 0

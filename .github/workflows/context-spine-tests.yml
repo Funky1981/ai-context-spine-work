@@ -27,6 +27,13 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Validate repository PowerShell syntax
+        shell: powershell
+        run: |
+          Get-ChildItem .\scripts -Filter '*.ps1' -File | ForEach-Object {
+            $content = Get-Content -LiteralPath $_.FullName -Raw
+            [void][ScriptBlock]::Create($content)
+          }
       - name: Run smoke test
         shell: powershell
         run: .\tests\Smoke-Test.ps1
@@ -36,6 +43,13 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Validate repository PowerShell syntax
+        shell: pwsh
+        run: |
+          Get-ChildItem .\scripts -Filter '*.ps1' -File | ForEach-Object {
+            $content = Get-Content -LiteralPath $_.FullName -Raw
+            [void][ScriptBlock]::Create($content)
+          }
       - name: Run smoke test
         shell: pwsh
         run: .\tests\Smoke-Test.ps1

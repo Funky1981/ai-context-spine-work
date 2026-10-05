@@ -105,3 +105,29 @@ WORK SHADOW CONTEXT VERIFICATION: PASSED
 ```
 
 The verifier is read-only. It compares the live OpenCode context with the shadow import using SHA-256 hashes and reports memory, project, command, and skill counts. Stop if it reports any failure.
+
+
+## Step 5 — Clean up redundant migration folders
+
+Copy `scripts/Cleanup-ContextSpineMigration.ps1` from GitHub Raw to:
+
+```text
+C:\Temp\ContextSpine\Cleanup-ContextSpineMigration.ps1
+```
+
+First run it in dry-run mode:
+
+```powershell
+& "C:\Temp\ContextSpine\Cleanup-ContextSpineMigration.ps1"
+```
+
+Expected output includes:
+
+```text
+CONTEXT SPINE CLEANUP SAFETY CHECK: PASSED
+DRY RUN ONLY - NOTHING DELETED
+```
+
+The dry run lists only the redundant migration/shadow folders it intends to remove. It keeps the canonical OpenCode folder and one rollback backup inside it.
+
+Do not run with `-Apply` until the dry-run list has been reviewed.
